@@ -12,8 +12,21 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// KeyConfig holds the configuration for a single JWT key
+type KeyConfig struct {
+	ID     string
+	Secret []byte
+}
+
+// GlobalConfig holds all JWT key configurations
+type GlobalConfig struct {
+	Keys       map[string]KeyConfig
+	ActiveKeys []string
+	DefaultKey string
+}
+
 var (
-	secretKey []byte
+	globalConfig GlobalConfig
 )
 
 // Add this struct for JWKS response
@@ -29,31 +42,69 @@ type JWKSResponse struct {
 	Keys []JSONWebKey `json:"keys"`
 }
 
+func loadConfig() error {
+	// Initialize the global config
+	globalConfig = GlobalConfig{
+		Keys: make(map[string]KeyConfig),
+	}
+
+	// Get active keys list
+	activeKeysStr := os.Getenv("JWT_ACTIVE_KEYS")
+	if activeKeysStr == "" {
+		return fmt.Errorf("JWT_ACTIVE_KEYS environment variable is required")
+	}
+	globalConfig.ActiveKeys = strings.Split(activeKeysStr, ",")
+
+	// Get default key
+	globalConfig.DefaultKey = os.Getenv("JWT_DEFAULT_KEY")
+	if globalConfig.DefaultKey == "" {
+		return fmt.Errorf("JWT_DEFAULT_KEY environment variable is required")
+	}
+
+	// Load each active key's configuration
+	for _, keyID := range globalConfig.ActiveKeys {
+		envPrefix := fmt.Sprintf("JWT_KEY_%s", strings.ReplaceAll(strings.ToUpper(keyID), "-", "_"))
+
+		secret := os.Getenv(envPrefix + "_SECRET")
+		if secret == "" {
+			return fmt.Errorf("missing secret for key %s", keyID)
+		}
+
+		config := KeyConfig{
+			ID:     keyID,
+			Secret: []byte(secret),
+		}
+
+		globalConfig.Keys[keyID] = config
+	}
+
+	return nil
+}
+
 func jwksHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("JWKS endpoint called from: %s", r.RemoteAddr)
-	log.Printf("Request headers: %+v", r.Header)
 
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Encode the secret key in base64
-	k := base64.RawURLEncoding.EncodeToString(secretKey)
-
-	jwks := JWKSResponse{
-		Keys: []JSONWebKey{
-			{
-				Kid: "key-1",
+	// Create JWKS response with all active keys
+	var jwksKeys []JSONWebKey
+	for _, keyID := range globalConfig.ActiveKeys {
+		if config, exists := globalConfig.Keys[keyID]; exists {
+			k := base64.RawURLEncoding.EncodeToString(config.Secret)
+			jwksKeys = append(jwksKeys, JSONWebKey{
+				Kid: keyID,
 				Kty: "oct",
 				Alg: "HS256",
 				Use: "sig",
 				K:   k,
-			},
-		},
+			})
+		}
 	}
 
-	log.Printf("Returning JWKS response: %+v", jwks)
+	jwks := JWKSResponse{Keys: jwksKeys}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(jwks); err != nil {
@@ -64,13 +115,9 @@ func jwksHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Initialize secret key
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "your-256-bit-secret" // Default secret for development
+	if err := loadConfig(); err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
-	log.Printf("JWT_SECRET: %s", secret)
-	secretKey = []byte(secret)
 
 	// API endpoints
 	http.HandleFunc("/auth", authHandler)
@@ -81,7 +128,8 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("Starting JWT auth server on port %s", port)
+	log.Printf("Starting JWT auth server on port %s with %d active keys",
+		port, len(globalConfig.ActiveKeys))
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
@@ -102,14 +150,34 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-	log.Printf("authHandler: Received token: %s", tokenString)
 
+	// Parse token without validating signature first to get the key ID
+	parser := jwt.Parser{}
+	token, _ := parser.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return nil, nil
+	})
+
+	var keyID string
+	if token != nil {
+		if kid, ok := token.Header["kid"].(string); ok {
+			keyID = kid
+		}
+	}
+
+	// Get the correct key configuration
+	keyConfig, exists := globalConfig.Keys[keyID]
+	if !exists {
+		log.Printf("authHandler: Unknown key ID: %s", keyID)
+		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// Now parse and validate the token with the correct key
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			log.Printf("authHandler: Unexpected signing method: %v", token.Header["alg"])
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return secretKey, nil
+		return keyConfig.Secret, nil
 	})
 
 	if err != nil || !token.Valid {
@@ -137,9 +205,8 @@ func authHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("authHandler: Token claims: %v", claims)
+	log.Printf("authHandler: Valid token with key %s, claims: %v", keyID, claims)
 
-	// Return JWT claims in response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(claims)
