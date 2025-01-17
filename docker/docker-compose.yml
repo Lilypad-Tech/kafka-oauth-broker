@@ -1,0 +1,67 @@
+services:
+  broker:
+    image: confluentinc/cp-kafka:latest
+    container_name: lilypad-broker
+    user: root
+    environment:
+      - CLUSTER_ID=${CLUSTER_ID}
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@broker:9093
+      
+      # Listeners
+      - KAFKA_LISTENERS=PLAINTEXT://broker:9092,CONTROLLER://broker:9093,EXTERNAL://0.0.0.0:9094
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://broker:9092,EXTERNAL://broker:9094
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:SASL_PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      
+      # SASL/OAuth configuration
+      - KAFKA_SASL_ENABLED_MECHANISMS=OAUTHBEARER
+      - KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAINTEXT
+      - KAFKA_SASL_OAUTHBEARER_JWKS_ENDPOINT_URL=http://jwt-auth:8081/.well-known/jwks.json
+      - KAFKA_SASL_OAUTHBEARER_EXPECTED_AUDIENCE=kafka-broker
+      - KAFKA_SASL_OAUTHBEARER_EXPECTED_ISSUER=kafka-auth
+      - KAFKA_SASL_OAUTHBEARER_VALIDATION_ALLOW_SYMMETRIC_KEYS=true
+      - KAFKA_SASL_OAUTHBEARER_SUB_CLAIM_NAME=sub
+      - KAFKA_SASL_OAUTHBEARER_SCOPE_CLAIM_NAME=scope
+      - KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_SERVER_CALLBACK_HANDLER_CLASS=org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerValidatorCallbackHandler
+      - KAFKA_LISTENER_NAME_EXTERNAL_OAUTHBEARER_SASL_JAAS_CONFIG=org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required;
+      - KAFKA_LISTENER_NAME_SASL_LISTENER_PLAIN_SASL_JAAS_CONFIG=org.apache.kafka.common.security.plain.PlainLoginModule required;
+
+      # Debug logging
+      - KAFKA_OPTS=-Djava.security.auth.login.config=/etc/kafka/kafka_server_jaas.conf -Dlog4j.logger.org.apache.kafka.common.security.authenticator=DEBUG -Dlog4j.logger.org.apache.kafka.common.security.oauthbearer=DEBUG
+    volumes:
+      - ./kraft-logs:/tmp/kraft-combined-logs
+      - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+      - "9094:9094"
+    entrypoint: >
+      sh -c "
+      rm -rf /tmp/kraft-combined-logs/* &&
+      mkdir -p /tmp/kraft-combined-logs &&
+      chmod -R 777 /tmp/kraft-combined-logs &&
+      kafka-storage format --ignore-formatted --config /etc/kafka/kraft/server.properties --cluster-id $${CLUSTER_ID} &&
+      su appuser -c '/etc/confluent/docker/run'"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server broker:9092 --list"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      jwt-auth:
+        condition: service_started
+
+  jwt-auth:
+    build: 
+      context: ..
+      dockerfile: pkg/jwt-auth/Dockerfile
+    container_name: lilypad-jwt-auth
+    ports:
+      - "8081:8081"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+      - PORT=8081
