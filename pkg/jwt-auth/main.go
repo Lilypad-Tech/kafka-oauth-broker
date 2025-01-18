@@ -63,13 +63,16 @@ func loadConfig() error {
 
 	// Load each active key's configuration
 	for _, keyID := range globalConfig.ActiveKeys {
-		envPrefix := fmt.Sprintf("JWT_KEY_%s", strings.ReplaceAll(strings.ToUpper(keyID), "-", "_"))
+		// Adjust the prefix to remove extra _KEY_
+		envPrefix := fmt.Sprintf("JWT_%s", strings.ReplaceAll(strings.ToUpper(keyID), "-", "_"))
 
+		// Get the secret for the key
 		secret := os.Getenv(envPrefix + "_SECRET")
 		if secret == "" {
 			return fmt.Errorf("missing secret for key %s", keyID)
 		}
 
+		// Add the key configuration
 		config := KeyConfig{
 			ID:     keyID,
 			Secret: []byte(secret),
