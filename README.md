@@ -1,28 +1,29 @@
 # JWT Authentication Setup for Kafka
 
 ## Configure Firewall
-```
+```bash
+gcloud auth login
+gcloud config set project [PROJECT_NAME]
 gcloud compute firewall-rules create allow-kafka \
   --allow tcp:9094 \
   --target-tags=kafka-broker \
   --description="Allow Kafka SASL port"
 
 # Add the network tag to your VM
-gcloud compute instances add-tags kafka-broker \
-  --tags=kafka-broker
+gcloud compute instances list
+
+gcloud compute instances add-tags [INSTANCE NAME] \
+  --tags=kafka-broker \
+  --zone=[ZONE]
 ```
 
 ## Setup .env
 To start, create a `.env` file that contains the necessary environment variables for your application. This file will be used to store sensitive information locally before transitioning to Google Cloud Secret Manager.
 
-Example `.env` file:
-```
-JWT_KEY_1=key_1
-JWT_KEY_1_SECRET=your_jwt_key_1_secret
-```
-```
+```bash
 cp .env.sample .env
 ```
+
 ____
 
 ## TODO
