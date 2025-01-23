@@ -30,6 +30,26 @@ JWT_KEY_TEST_SECRET=<from-doppler>
 JWT_KEY_DEV_SECRET=<from-doppler>
 ```
 
+## Configure External Access
+When deploying to an external server, you'll need to set the `KAFKA_BROKER` environment variable to your VM's external IP address:
+
+1. Get your VM's external IP:
+```bash
+gcloud compute instances describe [INSTANCE_NAME] \
+  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+```
+
+2. Update your `.env` file with the external IP:
+```bash
+# For local development (default)
+KAFKA_BROKER=broker
+
+# For external server deployment
+KAFKA_BROKER=<your-vm-external-ip>
+```
+
+
+
 
 ____
 
