@@ -24,6 +24,13 @@ To start, create a `.env` file that contains the necessary environment variables
 cp .env.sample .env
 ```
 
+```bash
+# Get the test and dev environment secrets from Doppler
+JWT_KEY_TEST_SECRET=<from-doppler>
+JWT_KEY_DEV_SECRET=<from-doppler>
+```
+
+
 ____
 
 ## TODO

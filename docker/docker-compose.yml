@@ -63,8 +63,10 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - JWT_KEY_1_ID=${JWT_KEY_1_ID}
-      - JWT_KEY_1_SECRET=${JWT_KEY_1_SECRET}
+      - JWT_KEY_DEV_ID=${JWT_KEY_DEV_ID}
+      - JWT_KEY_DEV_SECRET=${JWT_KEY_DEV_SECRET}      
+      - JWT_KEY_TEST_ID=${JWT_KEY_TEST_ID}
+      - JWT_KEY_TEST_SECRET=${JWT_KEY_TEST_SECRET}
       - JWT_ACTIVE_KEYS=${JWT_ACTIVE_KEYS}
       - JWT_DEFAULT_KEY=${JWT_DEFAULT_KEY}
       - PORT=8081
