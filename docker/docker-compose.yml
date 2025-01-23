@@ -38,6 +38,8 @@ services:
       - "9092:9092"
       - "9093:9093"
       - "9094:9094"
+    networks:
+      - my_network
     entrypoint: >
       sh -c "
       rm -rf /tmp/kraft-combined-logs/* &&
@@ -62,6 +64,8 @@ services:
     container_name: lilypad-jwt-auth
     ports:
       - "8081:8081"
+    networks:
+      - my_network
     environment:
       - JWT_KEY_DEV_ID=${JWT_KEY_DEV_ID}
       - JWT_KEY_DEV_SECRET=${JWT_KEY_DEV_SECRET}      
@@ -70,3 +74,7 @@ services:
       - JWT_ACTIVE_KEYS=${JWT_ACTIVE_KEYS}
       - JWT_DEFAULT_KEY=${JWT_DEFAULT_KEY}
       - PORT=8081
+
+networks:
+  my_network:
+    driver: bridge
