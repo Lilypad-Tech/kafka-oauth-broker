@@ -63,11 +63,41 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - JWT_KEY_DEV_ID=${JWT_KEY_DEV_ID}
-      - JWT_KEY_DEV_SECRET=${JWT_KEY_DEV_SECRET}      
-      - JWT_KEY_TEST_ID=${JWT_KEY_TEST_ID}
-      - JWT_KEY_TEST_SECRET=${JWT_KEY_TEST_SECRET}
+      - JWT_KEY_DEVNET_ID=${JWT_KEY_DEVNET_ID}
+      - JWT_KEY_DEVNET_SECRET=${JWT_KEY_DEVNET_SECRET}      
+      - JWT_KEY_TESTNET_ID=${JWT_KEY_TESTNET_ID}
+      - JWT_KEY_TESTNET_SECRET=${JWT_KEY_TESTNET_SECRET}
       - JWT_ACTIVE_KEYS=${JWT_ACTIVE_KEYS}
       - JWT_DEFAULT_KEY=${JWT_DEFAULT_KEY}
+      - JWT_AUTH_ALLOWED_CLIENT_ID=${KAFKA_UI_CLIENT_ID}
+      - JWT_AUTH_ALLOWED_CLIENT_SECRET=${KAFKA_UI_CLIENT_SECRET}
       - PORT=8081
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: lilypad-kafka-ui
+    depends_on:
+      broker:
+        condition: service_healthy
+      jwt-auth:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      AUTH_TYPE: "LOGIN_FORM"
+      SPRING_SECURITY_USER_NAME: ${UI_USERNAME}
+      SPRING_SECURITY_USER_PASSWORD: ${UI_PASSWORD}
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:9094
+      KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL: SASL_PLAINTEXT
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM: OAUTHBEARER
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG: "org.apache.kafka.common.security.oauthbearer.OAuthBearerLoginModule required clientId=\"${KAFKA_UI_CLIENT_ID}\" clientSecret=\"${KAFKA_UI_CLIENT_SECRET}\";"
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_LOGIN_CALLBACK_HANDLER_CLASS: org.apache.kafka.common.security.oauthbearer.secured.OAuthBearerLoginCallbackHandler
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_OAUTHBEARER_TOKEN_ENDPOINT_URL: http://jwt-auth:8081/token
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_OAUTHBEARER_JWKS_ENDPOINT_URL: http://jwt-auth:8081/.well-known/jwks.json
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_OAUTHBEARER_EXPECTED_AUDIENCE: kafka-broker
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_OAUTHBEARER_EXPECTED_ISSUER: kafka-auth
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_OAUTHBEARER_SUB_CLAIM_NAME: sub
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_OAUTHBEARER_SCOPE_CLAIM_NAME: scope
 

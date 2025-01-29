@@ -9,6 +9,12 @@ gcloud compute firewall-rules create allow-kafka \
   --target-tags=kafka-broker \
   --description="Allow Kafka SASL port"
 
+# Allow Kafka UI port
+gcloud compute firewall-rules create allow-kafka-ui \
+  --allow tcp:8080 \
+  --target-tags=kafka-broker \
+  --description="Allow Kafka UI access"
+
 # Add the network tag to your VM
 gcloud compute instances list
 
@@ -25,9 +31,19 @@ cp .env.sample .env
 ```
 
 ```bash
-# Get the test and dev environment secrets from Doppler
-JWT_KEY_TEST_SECRET=<from-doppler>
-JWT_KEY_DEV_SECRET=<from-doppler>
+# Get the testnet and devnet environment secrets from Doppler
+JWT_KEY_TESTNET_SECRET=<from-doppler>
+JWT_KEY_DEVNET_SECRET=<from-doppler>
+
+# Set up Kafka UI credentials
+# UI login credentials (protect the web interface)
+UI_USERNAME=<your-chosen-username>
+UI_PASSWORD=<your-chosen-password>
+
+# OAuth client credentials (for Kafka broker authentication)
+# These are only used internally between Kafka UI and JWT auth service
+KAFKA_UI_CLIENT_ID=kafka-ui  # default value
+KAFKA_UI_CLIENT_SECRET=<generate-a-random-string>  # e.g., openssl rand -hex 16
 ```
 
 ## Configure External Access
