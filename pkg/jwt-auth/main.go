@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -117,6 +118,102 @@ func jwksHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func tokenHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("tokenHandler called")
+
+	if r.Method != http.MethodPost {
+		log.Printf("tokenHandler: Unsupported method %s", r.Method)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var clientID, clientSecret string
+
+	// First try form values
+	clientID = r.FormValue("client_id")
+	clientSecret = r.FormValue("client_secret")
+
+	// If form values are empty, try Basic auth
+	if clientID == "" || clientSecret == "" {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Basic ") {
+			log.Println("tokenHandler: Using Basic auth credentials")
+			encodedCreds := strings.TrimPrefix(authHeader, "Basic ")
+			decodedCreds, err := base64.StdEncoding.DecodeString(encodedCreds)
+			if err == nil {
+				creds := strings.SplitN(string(decodedCreds), ":", 2)
+				if len(creds) == 2 {
+					clientID = creds[0]
+					clientSecret = creds[1]
+				}
+			}
+		}
+	}
+
+	// Log the received values for debugging
+	log.Printf("tokenHandler: Received clientID: %s", clientID)
+
+	if clientID == "" || clientSecret == "" {
+		log.Println("tokenHandler: Missing client credentials")
+		http.Error(w, "Missing client credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// In a real system, you would validate client credentials against a database
+	// For this POC, we'll accept configured client credentials from environment
+	allowedClientID := os.Getenv("JWT_AUTH_ALLOWED_CLIENT_ID")
+	allowedClientSecret := os.Getenv("JWT_AUTH_ALLOWED_CLIENT_SECRET")
+
+	if allowedClientID == "" || allowedClientSecret == "" {
+		log.Printf("tokenHandler: Missing allowed client configuration")
+		http.Error(w, "Service misconfigured", http.StatusInternalServerError)
+		return
+	}
+
+	if clientID != allowedClientID || clientSecret != allowedClientSecret {
+		log.Printf("tokenHandler: Invalid client credentials: %s", clientID)
+		http.Error(w, "Invalid client credentials", http.StatusUnauthorized)
+		return
+	}
+
+	// Create a new token using the default key
+	keyConfig, exists := globalConfig.Keys[globalConfig.DefaultKey]
+	if !exists {
+		log.Printf("tokenHandler: Default key not found: %s", globalConfig.DefaultKey)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create token with claims
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": clientID,
+		"iss": "kafka-auth",
+		"aud": "kafka-broker",
+		"exp": jwt.NewNumericDate(time.Now().Add(time.Hour)),
+		"iat": jwt.NewNumericDate(time.Now()),
+	})
+	token.Header["kid"] = keyConfig.ID
+
+	// Sign the token
+	tokenString, err := token.SignedString(keyConfig.Secret)
+	if err != nil {
+		log.Printf("tokenHandler: Error signing token: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Format response as expected by Kafka OAuth
+	response := map[string]interface{}{
+		"access_token": tokenString,
+		"token_type":   "Bearer",
+		"expires_in":   3600, // 1 hour
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
 func main() {
 	if err := loadConfig(); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -124,6 +221,7 @@ func main() {
 
 	// API endpoints
 	http.HandleFunc("/auth", authHandler)
+	http.HandleFunc("/token", tokenHandler)
 	http.HandleFunc("/.well-known/jwks.json", jwksHandler)
 
 	port := os.Getenv("PORT")
